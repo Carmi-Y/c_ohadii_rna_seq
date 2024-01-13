@@ -33,6 +33,14 @@ def main():
     # Create a directory for the plots
     plots_dir = create_directory(output_path, 'plots')
 
+
+    GO_abundace_summary_df = get_GO_data(joined_expression_df)
+
+    # Save the dataframe to a csv file
+    GO_abundace_summary_df.to_csv(os.path.join(output_path, 'summary_go_abundances.csv'), index=False)
+        
+
+
         
         
 def get_files_data_in_dict(files):
@@ -154,6 +162,101 @@ def create_directory(parent_directory, nested_directory_name):
         os.mkdir(new_dir_path)
     return new_dir_path
 
+
+def get_GO_data(joined_expression_df):
+    '''
+    Description
+    -----------
+    Get the GO data from the joined dataframe
+
+    Parameters
+    ----------
+    joined_expression_df : pandas.DataFrame
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        A dataframe containing the GO data with the following columns:
+        phase : The phase of the gene expression
+        domain : The domain of the GO term (C, P, F)
+        description : The description of the GO term
+        abundance : The abundance of the GO term - sum of all reads (in rpkm) that fell under the GO term
+    '''
+    # In a GO string, the first letter represents the ontology (C, P, F)
+    # C - cellular component
+    cellular_component_phase_I_keys_and_proportion = {}
+    cellular_component_phase_II_keys_and_proportion = {}
+    # P - biological process
+    biological_process_phase_I_keys_and_proportion = {}
+    biological_process_phase_II_keys_and_proportion = {}
+    # F - molecular function
+    molecular_function_phase_I_keys_and_proportion = {}
+    molecular_function_phase_II_keys_and_proportion = {}
+
+    # Make the abundance calculation using dictionaries for efficiency
+    for index ,row in joined_expression_df.iterrows():
+        expression_in_phae_I = row['T1']
+        expression_in_phae_II = row['T2']
+
+        for go_term_inner_item in row['GO'].split(";"):
+            go_term_inner_item = go_term_inner_item.strip().split(":")
+            go_term_inner_item_key = go_term_inner_item[0]
+            go_term_inner_item_value = go_term_inner_item[1]
+
+            if go_term_inner_item_key == 'C':
+                if go_term_inner_item_value not in cellular_component_phase_I_keys_and_proportion.keys():
+                    cellular_component_phase_I_keys_and_proportion[go_term_inner_item_value] = expression_in_phae_I
+                    cellular_component_phase_II_keys_and_proportion[go_term_inner_item_value] = expression_in_phae_II
+                else:
+                    cellular_component_phase_I_keys_and_proportion[go_term_inner_item_value] += expression_in_phae_I
+                    cellular_component_phase_II_keys_and_proportion[go_term_inner_item_value] += expression_in_phae_II
+            elif go_term_inner_item_key == 'P':
+                if go_term_inner_item_value not in biological_process_phase_I_keys_and_proportion.keys():
+                    biological_process_phase_I_keys_and_proportion[go_term_inner_item_value] = expression_in_phae_I
+                    biological_process_phase_II_keys_and_proportion[go_term_inner_item_value] = expression_in_phae_II
+                else:
+                    biological_process_phase_I_keys_and_proportion[go_term_inner_item_value] += expression_in_phae_I
+                    biological_process_phase_II_keys_and_proportion[go_term_inner_item_value] += expression_in_phae_II
+            elif go_term_inner_item_key == 'F':
+                if go_term_inner_item_value not in molecular_function_phase_I_keys_and_proportion.keys():
+                    molecular_function_phase_I_keys_and_proportion[go_term_inner_item_value] = expression_in_phae_I
+                    molecular_function_phase_II_keys_and_proportion[go_term_inner_item_value] = expression_in_phae_II
+                else:
+                    molecular_function_phase_I_keys_and_proportion[go_term_inner_item_value] += expression_in_phae_I
+                    molecular_function_phase_II_keys_and_proportion[go_term_inner_item_value] += expression_in_phae_II
+            else:
+                raise ValueError(f'Unexpected GO term key in: {row["GO"]} at row {index}')
+            
+    
+    # Put the contents of the dictionaries in a dataframe
+    phases = []
+    domains = []
+    descriptions = []
+    abundances = []
+
+    domains_letters = ['C', 'C', 'P', 'P', 'F', 'F']
+    phases_letters = ['I', 'II', 'I', 'II', 'I', 'II']
+    for index, dict in enumerate([
+                    cellular_component_phase_I_keys_and_proportion, cellular_component_phase_II_keys_and_proportion,
+                    biological_process_phase_I_keys_and_proportion, biological_process_phase_II_keys_and_proportion,
+                    molecular_function_phase_I_keys_and_proportion, molecular_function_phase_II_keys_and_proportion,
+                ]):
+        curr_domain = domains_letters[index]
+        curr_phase = phases_letters[index]
+        for key, value in dict.items():
+            phases.append(curr_phase)
+            domains.append(curr_domain)
+            descriptions.append(key)
+            abundances.append(value)
+
+
+    # Create a dataframe from the lists
+    return pd.DataFrame({
+        'phase': phases,
+        'domain': domains,
+        'description': descriptions,
+        'abundance': abundances
+    })
 
 if __name__ == "__main__":
     main()
