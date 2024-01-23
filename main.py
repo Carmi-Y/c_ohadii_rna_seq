@@ -6,6 +6,8 @@ import argparse
 import numpy as np
 import pandas as pd
 import seaborn as sns
+
+import matplotlib
 import matplotlib.pyplot as plt
 
 import scienceplots
@@ -30,9 +32,6 @@ def main():
     # export the joined dataframe to a csv file
     joined_expression_df.to_csv(os.path.join(output_path, 'joined_expression_df.csv'), index=False)
 
-    # Create a directory for the plots
-    plots_dir = create_directory(output_path, 'plots')
-
 
     GO_abundace_summary_df = get_GO_data(joined_expression_df)
 
@@ -40,9 +39,33 @@ def main():
     GO_abundace_summary_df.to_csv(os.path.join(output_path, 'summary_go_abundances.csv'), index=False)
         
 
+    # Create a directory for the plots
+    plots_dir = create_directory(output_path, 'plots')
 
+    make_GO_plot('C', ['chloroplast envelope', 'chloroplast inner membrane', 'chloroplast stroma', 'chloroplast thylakoid',
+                       'photosystem I', 'thylakoid lumen', 'thylakoid membrane'], GO_abundace_summary_df, plots_dir,
+                       'Chloroplast', sns.light_palette("seagreen", as_cmap=True))
+    
+
+    make_GO_plot('C', ['mitochondrial inner membrane', 'mitochondrial respiratory chain complex I', 'mitochondrial ribosome'],
+                    GO_abundace_summary_df, plots_dir, 'Mitochondrion', 'Reds')
+    
+    make_GO_plot('C', ['endosome', 'extracellular exosome', 'extrinsic component of membrane','extracellular region'],
+                 GO_abundace_summary_df, plots_dir, 'Endo and Exo cytosis', 'Blues')
+    
+    make_GO_plot('C', ['endomembrane system', 'endoplasmic reticulum', 'endoplasmic reticulum lumen', 
+                       'endoplasmic reticulum membrane', 'cytoskeleton', 'cell cortex', 'myosin complex',
+                        'nuclear envelope', 'nucleoplasm' 'nucleus', 'vacuole'], GO_abundace_summary_df, plots_dir, 'Endomembrane systems', 'Purples')
         
-        
+    make_GO_plot('C', ['anaphase-promoting complex', 'condensin complex', 'apoplast', 'BRCA1-A complex', 
+                       'cell wall', 'MCM complex', 'microtubule', 'phragmoplast', 'spindle microtubule', 'U7 snRNP', 'nucleolus'], GO_abundace_summary_df, plots_dir,
+                       'Cell cycle and DNA repair', sns.color_palette("flare", as_cmap=True))
+    
+    make_GO_plot('C', ['DNA-directed RNA polymerase II, core complex', 'Elongator holoenzyme complex',
+                       'mRNA cleavage and polyadenylation specificity factor complex', 'signal peptidase complex', 'ribosome',
+                       'small-subunit processome', 'transcription factor TFIID complex'], GO_abundace_summary_df, plots_dir,
+                       'Transcription and translation', sns.diverging_palette(220, 20, as_cmap=True))
+
 def get_files_data_in_dict(files):
     '''
     Description
@@ -257,6 +280,66 @@ def get_GO_data(joined_expression_df):
         'description': descriptions,
         'abundance': abundances
     })
+
+
+def make_GO_plot(domain, descriptions, GO_abundace_summary_df, plots_dir, save_name, colormap_for_plot):
+    '''
+    Description
+    -----------
+    Make a plot of the GO terms
+    
+    Parameters
+    ----------
+    domain : str
+        The domain of the GO term (C, P, F)
+    descriptions : list of str
+        A list of GO term descriptions
+    GO_abundace_summary_df : pandas.DataFrame
+        A dataframe containing the GO data with the following columns:
+        phase : The phase of the gene expression
+        domain : The domain of the GO term (C, P, F)
+        description : The description of the GO term
+        abundance : The abundance of the GO term - sum of all reads (in rpkm) that fell under the GO term
+    plots_dir : str
+        The path to the plots directory
+    
+    Returns
+    -------
+    None
+    '''
+    domain_data = GO_abundace_summary_df.loc[(GO_abundace_summary_df['domain'] == domain)]
+    phase_I_data = domain_data.loc[((domain_data['phase'] == 'I') & (domain_data['description'].isin(descriptions)))]
+    phase_II_data = domain_data.loc[((domain_data['phase'] == 'II') & (domain_data['description'].isin(descriptions)))]
+
+    joined_df = phase_I_data.merge(phase_II_data, on='description', how='left', suffixes=('_I', '_II'))
+    joined_df = joined_df.drop(columns=['domain_I', 'domain_II', 'phase_I', 'phase_II'])
+    joined_df = joined_df.rename(columns={'description': 'description', 'abundance_I': 'abundance_phase_I', 'abundance_II': 'abundance_phase_II'}) 
+    joined_df['log2_ratio_phaseII_over_phaseI'] = np.log2(joined_df['abundance_phase_II'] / joined_df['abundance_phase_I'])
+    joined_df = joined_df.sort_values(by=['log2_ratio_phaseII_over_phaseI'], ascending=False)
+
+
+    # Plot the data
+    colormap = colormap_for_plot
+
+    # Normalize values to map to the colormap
+    norm = plt.Normalize(joined_df['log2_ratio_phaseII_over_phaseI'].min(), joined_df['log2_ratio_phaseII_over_phaseI'].max())
+
+    # Create a colorbar scalar map
+    colors = plt.cm.ScalarMappable(norm=norm, cmap=colormap)
+
+    fig, ax = plt.subplots(figsize=(10, 10))
+    description_for_sidp =  joined_df['description'].str.replace(' ', '\n')
+    bars = ax.bar(description_for_sidp, joined_df['log2_ratio_phaseII_over_phaseI'], color=colors.to_rgba(joined_df['log2_ratio_phaseII_over_phaseI']), edgecolor='black', linewidth=1)
+
+    ax.axline((0, 0), slope=0, color='black', linewidth=1)
+
+    ax.set_title(r'$log_2$' + r'$(\frac{T2}{T1})$' + f' for {save_name} GO terms', fontsize=20)
+    ax.set_xlabel('GO term', fontsize=16)
+    ax.set_ylabel(r'$log_2$' + r'$(\frac{T2}{T1})$', fontsize=16)
+
+    plt.tight_layout()
+    
+    plt.savefig(os.path.join(plots_dir, f'log2_ratio_of_phase_II_over_phase_I_for_{save_name}_GO_terms.png'))
 
 if __name__ == "__main__":
     main()
